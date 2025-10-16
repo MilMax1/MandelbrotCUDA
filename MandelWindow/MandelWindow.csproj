@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<Nullable>disable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<UseWPF>true</UseWPF>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\CudaRuntime\CudaRuntime.vcxproj">
+			<ReferenceOutputAssembly>False</ReferenceOutputAssembly>
+		</ProjectReference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="..\x64\$(Configuration)\CudaRuntime.dll">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+			<Link>%(Filename)%(Extension)</Link>
+			<Visible>false</Visible>
+		</Content>
+	</ItemGroup>
+
+</Project>
