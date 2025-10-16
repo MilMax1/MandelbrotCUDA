@@ -28,6 +28,17 @@ namespace MandelWindow
         [DllImport("CudaRuntime.dll")]
         static extern int addWithCuda([Out] int[] c, [In] int[] a, [In] int[] b, uint size);
 
+        [DllImport("CudaRuntime.dll")]
+        private static extern int updateMandelCuda(
+            [In, Out] uint[] pixelData,
+            int width,
+            int height,
+            double mandelCenterX,
+            double mandelCenterY,
+            double mandelWidth,
+            double mandelHeight,
+            int mandelDepth
+);
         // --------------------------------------------------------------------
         // Attributes
         // --------------------------------------------------------------------
@@ -393,7 +404,38 @@ namespace MandelWindow
         /// </summary>
         public static void UpdateMandelParallel()
         {
-            UpdateMandel();
+            Application.Current.Dispatcher.Invoke(new Action(() =>
+            {
+                try
+                {
+                    bitmap.Lock();
+
+                    int width = bitmap.PixelWidth;
+                    int height = bitmap.PixelHeight;
+                    uint[] pixelBuffer = new uint[width * height];
+
+                    // call GPU function
+                    updateMandelCuda(pixelBuffer, width, height,
+                        mandelCenterX, mandelCenterY, mandelWidth, mandelHeight, mandelDepth);
+
+                    // copy GPU results to bitmap back buffer
+                    unsafe
+                    {
+                        fixed (uint* pPixels = pixelBuffer)
+                        {
+                            Buffer.MemoryCopy(pPixels, (void*)bitmap.BackBuffer,
+                                pixelBuffer.Length * sizeof(uint),
+                                pixelBuffer.Length * sizeof(uint));
+                        }
+                    }
+
+                    bitmap.AddDirtyRect(new Int32Rect(0, 0, width, height));
+                }
+                finally
+                {
+                    bitmap.Unlock();
+                }
+            }));
         }
 
         /// <summary>

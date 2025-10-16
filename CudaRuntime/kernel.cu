@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 // --------------------------------------------------------------------
 // Dll Exports
@@ -12,6 +13,142 @@ cudaError_t setCudaDevice(int device);
 
 extern "C" __declspec(dllexport)
 cudaError_t addWithCuda(int* c, const int* a, const int* b, unsigned int size);
+
+extern "C" __declspec(dllexport)
+cudaError_t updateMandelCuda(
+	unsigned int* pixelData, int width, int height,
+	double mandelCenterX, double mandelCenterY,
+	double mandelWidth, double mandelHeight,
+	int mandelDepth);
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+__device__ int IterCount(double cx, double cy, int mandelDepth)
+{
+	int result = 0;
+	double x = 0.0;
+	double y = 0.0;
+	double xx = 0.0, yy = 0.0;
+
+	while (xx + yy <= 4.0 && result < mandelDepth)
+	{
+		xx = x * x;
+		yy = y * y;
+		double xtmp = xx - yy + cx;
+		y = 2.0 * x * y + cy;
+		x = xtmp;
+		result++;
+	}
+	return result;
+}
+
+__device__ int ClampInt(double val)
+{
+	if (val < 0.0) return 0;
+	if (val > 255.0) return 255;
+	return (int)val;
+}
+
+__device__ void HsvToRgb(int h, double S, double V, int* r, int* g, int* b)
+{
+	double H = h;
+	while (H < 0) H += 360;
+	while (H >= 360) H -= 360;
+
+	double R, G, B;
+
+	if (V <= 0) { R = G = B = 0; }
+	else if (S <= 0) { R = G = B = V; }
+	else
+	{
+		double hf = H / 60.0;
+		int i = (int)floor(hf);
+		double f = hf - i;
+		double pv = V * (1 - S);
+		double qv = V * (1 - S * f);
+		double tv = V * (1 - S * (1 - f));
+
+		switch (i)
+		{
+		case 0: R = V; G = tv; B = pv; break;
+		case 1: R = qv; G = V; B = pv; break;
+		case 2: R = pv; G = V; B = tv; break;
+		case 3: R = pv; G = qv; B = V; break;
+		case 4: R = tv; G = pv; B = V; break;
+		case 5: R = V; G = pv; B = qv; break;
+		default: R = G = B = V; break;
+		}
+	}
+
+	*r = ClampInt(R * 255.0);
+	*g = ClampInt(G * 255.0);
+	*b = ClampInt(B * 255.0);
+}
+
+
+__global__ void mandelKernel(
+	unsigned int* pixelData, int width, int height,
+	double mandelCenterX, double mandelCenterY,
+	double mandelWidth, double mandelHeight,
+	int mandelDepth)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	int totalPixels = width * height;
+
+	if (idx >= totalPixels) return;
+
+	int row = idx / width;
+	int col = idx % width;
+
+	double cx = mandelCenterX - mandelWidth + col * ((mandelWidth * 2.0) / width);
+	double cy = mandelCenterY - mandelHeight + row * ((mandelHeight * 2.0) / height);
+
+	int light = IterCount(cx, cy, mandelDepth);
+
+	int R, G, B;
+	HsvToRgb(light, 1.0, light < mandelDepth ? 1.0 : 0.0, &R, &G, &B);
+
+	pixelData[idx] = (R << 16) | (G << 8) | B;
+}
+
+extern "C" __declspec(dllexport)
+cudaError_t updateMandelCuda(
+	unsigned int* pixelData, int width, int height,
+	double mandelCenterX, double mandelCenterY,
+	double mandelWidth, double mandelHeight,
+	int mandelDepth)
+{
+	cudaError_t cudaStatus;
+	unsigned int* dev_pixels = nullptr;
+	size_t totalSize = width * height * sizeof(unsigned int);
+
+	// allocate GPU memory
+	cudaStatus = cudaMalloc((void**)&dev_pixels, totalSize);
+	if (cudaStatus != cudaSuccess) goto Error;
+
+	// copy host pixel buffer to device 
+	cudaStatus = cudaMemcpy(dev_pixels, pixelData, totalSize, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) goto Error;
+
+	// Launch kernel
+	int threadsPerBlock = 256;
+	int blocks = (width * height + threadsPerBlock - 1) / threadsPerBlock;
+	mandelKernel << <blocks, threadsPerBlock >> > (dev_pixels, width, height,
+		mandelCenterX, mandelCenterY, mandelWidth, mandelHeight, mandelDepth);
+
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess) goto Error;
+
+	cudaStatus = cudaDeviceSynchronize();
+	if (cudaStatus != cudaSuccess) goto Error;
+
+	// copy result back
+	cudaStatus = cudaMemcpy(pixelData, dev_pixels, totalSize, cudaMemcpyDeviceToHost);
+Error:
+	cudaFree(dev_pixels);
+	return cudaStatus;
+}
+
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 // --------------------------------------------------------------------
 // CUDA Kernels
@@ -24,50 +161,7 @@ __global__ void addKernel(int* c, const int* a, const int* b)
 	c[i] = a[i] + b[i] + 1;
 }
 
-// --------------------------------------------------------------------
-// Main Function
-// --------------------------------------------------------------------
 
-// The main() function creates three arrays, calls addWithCuda(),
-// and prints out the result. Finally, it resets the CUDA device (GPU).
-int main()
-{
-	cudaError_t cudaStatus = cudaSuccess;
-
-	// Create three (stack-allocated) vetors.
-	const int arraySize = 5;
-	const int a[arraySize] = { 1, 2, 3, 4, 5 };
-	const int b[arraySize] = { 10, 20, 30, 40, 50 };
-	int c[arraySize] = { 0 };
-
-	// Set CUDA device (GPU).
-	cudaStatus = setCudaDevice(0);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "setCudaDevice failed!");
-		return 1;
-	}
-
-	// Add vectors in parallel.
-	cudaStatus = addWithCuda(c, a, b, arraySize);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "addWithCuda failed!");
-		return 1;
-	}
-
-	// Print out the result.
-	printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-		c[0], c[1], c[2], c[3], c[4]);
-
-	// cudaDeviceReset must be called before exiting in order for profiling and
-	// tracing tools such as Nsight and Visual Profiler to show complete traces.
-	cudaStatus = cudaDeviceReset();
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaDeviceReset failed!");
-		return 1;
-	}
-
-	return 0;
-}
 
 // --------------------------------------------------------------------
 // Helper Functions
@@ -161,6 +255,11 @@ Error:
 	cudaFree(dev_c);
 	cudaFree(dev_a);
 	cudaFree(dev_b);
+	
 
 	return cudaStatus;
+
+	
+
+
 }
