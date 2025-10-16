@@ -1,0 +1,12 @@
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.VC.db
+*.VC.VC.opendb
+*.opendb
+*.pdb
+*.log
