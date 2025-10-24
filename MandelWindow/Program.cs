@@ -205,6 +205,90 @@ namespace MandelWindow
                 if (useParallel) UpdateMandelParallel();
                 else UpdateMandel();
             }
+            else if (e.Key == Key.R)
+            {
+                Trace.WriteLine("--Starting Experiment--");
+
+                // save start state
+                double origCenterX = mandelCenterX;
+                double origCenterY = mandelCenterY;
+                double origWidth = mandelWidth;
+                double origHeight = mandelHeight;
+                int origDepth = mandelDepth;
+
+                // zoom target
+                double testZoomX = -0.16349229306767682;
+                double testZoomY = -1.0260970739840185;
+                int testSteps = 25; 
+
+               
+                //CPU TEST-------------------------------------------------
+               
+                useParallel = false;
+                Trace.WriteLine("Running original test");
+
+                // restore start
+                mandelCenterX = origCenterX;
+                mandelCenterY = origCenterY;
+                mandelWidth = origWidth;
+                mandelHeight = origHeight;
+                mandelDepth = origDepth;
+
+                Stopwatch cpuWatch = Stopwatch.StartNew();
+                for (int i = 0; i < testSteps; i++)
+                {
+                    mandelCenterX = (mandelCenterX * 0.8 + testZoomX * 0.2);
+                    mandelCenterY = (mandelCenterY * 0.8 + testZoomY * 0.2);
+                    mandelWidth *= 0.9;
+                    mandelHeight *= 0.9;
+                    mandelDepth += 2;
+
+                    UpdateMandel();
+                }
+                cpuWatch.Stop();
+                Trace.WriteLine($"CPU render sequence: {cpuWatch.ElapsedMilliseconds} ms");
+
+            
+                // GPU TEST-----------------------------------------------------------------
+                
+                useParallel = true;
+                Trace.WriteLine("Running parallel test");
+
+                // restore start
+                mandelCenterX = origCenterX;
+                mandelCenterY = origCenterY;
+                mandelWidth = origWidth;
+                mandelHeight = origHeight;
+                mandelDepth = origDepth;
+
+                Stopwatch gpuWatch = Stopwatch.StartNew();
+                for (int i = 0; i < testSteps; i++)
+                {
+                    mandelCenterX = (mandelCenterX * 0.8 + testZoomX * 0.2);
+                    mandelCenterY = (mandelCenterY * 0.8 + testZoomY * 0.2);
+                    mandelWidth *= 0.9;
+                    mandelHeight *= 0.9;
+                    mandelDepth += 2;
+
+                    UpdateMandelParallel();
+                }
+                gpuWatch.Stop();
+                Trace.WriteLine($"GPU render sequence: {gpuWatch.ElapsedMilliseconds} ms");
+
+                
+               
+                double speedup = (double)cpuWatch.ElapsedMilliseconds / gpuWatch.ElapsedMilliseconds;
+                Trace.WriteLine($"Speedup (CPU/GPU): {speedup:F2}x faster with GPU");
+
+                mandelCenterX = origCenterX;
+                mandelCenterY = origCenterY;
+                mandelWidth = origWidth;
+                mandelHeight = origHeight;
+                mandelDepth = origDepth;
+                UpdateMandel();
+
+                Trace.WriteLine("--Experiment complete--");
+            }
 
         }
 
