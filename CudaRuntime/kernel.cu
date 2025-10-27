@@ -128,7 +128,7 @@ cudaError_t updateMandelCuda(
 	cudaStatus = cudaMemcpy(dev_pixels, pixelData, totalSize, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) goto Error;
 
-	// Launch kernel
+	// launch kernel
 	int threadsPerBlock = 256;
 	int blocks = (width * height + threadsPerBlock - 1) / threadsPerBlock;
 	mandelKernel << <blocks, threadsPerBlock >> > (dev_pixels, width, height,
